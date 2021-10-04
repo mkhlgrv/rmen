@@ -9,7 +9,7 @@ collect.data.by.ticker(ticker, directory)
 \arguments{
 \item{ticker}{character ticker}
 
-\item{directory}{character path to database directory with subfolder "transform" (usually \code{Sys.getenv('directory')})}
+\item{directory}{character path to database directory with subfolder "tf" (usually \code{Sys.getenv('directory')})}
 }
 \value{
 data.table

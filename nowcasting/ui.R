@@ -1,5 +1,5 @@
 library(shiny)
-library(macroparsing)
+library(rmedb)
 library(ggplot2)
 library(dplyr)
 
@@ -8,19 +8,30 @@ shinyUI(
     navbarPage("Прогнозы для экономики России с помощью методов машинного обучения",
                tabPanel("Прогноз",
                         fluidRow(
-                            column(1,
-                                   actionButton("add", "Добавить", icon = icon("plus")),
-                                   actionButton("remove", "Удалить", icon = icon("minus")),
-                                   actionButton("reset", "Очистить", icon = icon("trash")),
+                            column(2,
+                                   tags$div(
+                                   actionButton("add", "Добавить", icon = icon("plus"))
+                                   ),
+
+                                   tags$div(
+                                     actionButton("remove", "Удалить", icon = icon("minus"))
+                                   )
+                                   ,
+                                   tags$div(
+                                     actionButton("reset", "Очистить", icon = icon("trash"))
+                                   )
+                                   ,
                                    hr(),
                                    fileInput('json_file', 'Загрузить JSON-файл с описанием вычислений',
                                              accept = ".json"),
-                                   actionButton('submit_calc', 'Вычислить'),
-                                   downloadButton('downloadData', 'Загрузить' ),
-                                   checkboxInput('show_code', 'Показать код',value = TRUE)
+                                   checkboxInput('show_code', 'Показать JSON',value = TRUE),
+                                   hr(),
+                                   actionButton('submit_calc', 'Вычислить прогнозы', icon = icon("cogs")),
+                                   downloadButton('downloadData', 'Скачать результаты',icon = icon("download") )
+
                             ),
 
-                            mainPanel(conditionalPanel(
+                            mainPanel(column(4,conditionalPanel(
                                 condition = "input.show_code == true",
                                 tags$div(
                                                 HTML(paste0("<p>",
@@ -34,16 +45,19 @@ shinyUI(
 
                                 )
                                 ),
-                                downloadButton('downloadJSON', 'Скачать'),
+                                downloadButton('downloadJSON', 'Скачать JSON'),
                                 htmlOutput("args_html")
+                            )
                             ),
+                            column(6,
                                       dataTableOutput("pred")
+                            )
                             )
 
                         )
                ),
                tabPanel("Описание переменных",
-                        fluidRow(mainPanel((dataTableOutput("table"))))
+                        fluidRow(mainPanel((DT::dataTableOutput("table"))))
                )
     )
 )

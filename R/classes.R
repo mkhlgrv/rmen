@@ -20,7 +20,7 @@ setClass(
 
 
 setMethod("initialize", "nowcast",
-          function(.Object, target,name, methods, start_date, nowcast_date, horizon, predictors, target_deseason) {
+          function(.Object, target,name, start_date, nowcast_date, horizon,target_deseason,predictors,methods) {
             .Object@target  <-  target
             .Object@name <- name
             .Object@methods <- methods
@@ -30,13 +30,13 @@ setMethod("initialize", "nowcast",
             .Object@predictors <- predictors
             .Object@dates <- lubridate::ymd()
             .Object@target_deseason<-target_deseason
-            .Object@freq <- macroparsing::variables[which(macroparsing::variables$ticker == target),'freq']
+            .Object@freq <- rmedb::variables[which(rmedb::variables$ticker == target),'freq']
             .Object@pred <- data.frame(method=character(), y_pred=numeric())
 
             for(i in 1:length(.Object@predictors)){
 
 
-              .Object@predictors[[i]]$freq <- macroparsing::variables[which(macroparsing::variables$ticker ==
+              .Object@predictors[[i]]$freq <- rmedb::variables[which(rmedb::variables$ticker ==
                                                                             .Object@predictors[[i]]$ticker), 'freq']
             }
 
@@ -59,7 +59,7 @@ fit <- function(object){
 #' Returns transformed data for specified ticker
 #'
 #' @param ticker character ticker
-#' @param directory character path to database directory with subfolder "transform" (usually \code{Sys.getenv('directory')})
+#' @param directory character path to database directory with subfolder "tf" (usually \code{Sys.getenv('directory')})
 #'
 #' @return data.table
 #' @keywords internal
@@ -75,7 +75,7 @@ fit <- function(object){
 #' # 5:  1996-01-01 10518.41
 
 collect.data.by.ticker <- function(ticker, directory){
-  file_name = paste0(directory, '/data/transform/', ticker,'.csv')
+  file_name = paste0(directory, '/data/tf/', ticker,'.csv')
   data.table::fread(file_name,
                     select = c('date', 'value'),
                     col.names = c('date', ticker))
@@ -296,6 +296,12 @@ deseason <- function(df, deseason, freq){ # target freq
 }
 
 
+#' Collect data
+#'
+#' @param nowcast
+#'
+#' @return nowcast
+#' @export
 setMethod("collect.data", "nowcast",
           function(object, directory = NULL) {
             if(is.null(directory)){
@@ -338,6 +344,12 @@ setMethod("collect.data", "nowcast",
           }
           )
 
+#' Fit
+#'
+#' @param nowcast
+#'
+#' @return nowcast
+#' @export
 setMethod("fit", "nowcast",
           function(object){
 
@@ -389,16 +401,16 @@ setMethod("fit", "nowcast",
 
           })
 
-json_list <- jsonlite::fromJSON('info/json_example.json',
-                                                  simplifyDataFrame = FALSE,
-                                                  simplifyVector = TRUE)
-result <- do.call(new, c("Class"="nowcast",
-                         "nowcast_date" = as.character(Sys.Date()),
-                         json_list[[1]])) %>%
-  collect.data() %>%
-  fit()
-res=resamples(list('RF' = result@fit[[1]]$model,
-                   'RF+PCA' = result@fit[[2]]$model,
-                   'RF+ICA' = result@fit[[3]]$model))
-bwplot(res, layout = c(1, 3),scales = list(relation = "free"))
-summary(res)
+# json_list <- jsonlite::fromJSON('info/json_example.json',
+#                                                   simplifyDataFrame = FALSE,
+#                                                   simplifyVector = TRUE)
+# result <- do.call(new, c("Class"="nowcast",
+#                          "nowcast_date" = as.character(Sys.Date()),
+#                          json_list[[1]])) %>%
+#   collect.data() %>%
+#   fit()
+# res=resamples(list('RF' = result@fit[[1]]$model,
+#                    'RF+PCA' = result@fit[[2]]$model,
+#                    'RF+ICA' = result@fit[[3]]$model))
+# bwplot(res, layout = c(1, 3),scales = list(relation = "free"))
+# summary(res)

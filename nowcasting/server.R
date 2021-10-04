@@ -73,7 +73,7 @@ shinyServer(function(input, output) {
     textarea.with.dynamic.rows <- function(value, id){
         nrow <- min(max(stringr::str_count(value, "\n"),3),25)
         HTML(paste0(
-            "<textarea cols = '80' rows = '",
+            "<textarea cols = '40' rows = '",
             nrow,
             "' id = '",
             id,
@@ -226,9 +226,20 @@ shinyServer(function(input, output) {
 
     observeEvent(input$submit_calc, {
         if(!is.null(reactive_input$names)){
+            progress <- shiny::Progress$new(min = 0, max  = length(reactive_input$items))
+            # Make sure it closes when we exit this reactive, even if there's an error
+            on.exit(progress$close())
+            progress$set(message = "Вычисление...", value = 0)
+
             reactive_input$result <-
                 purrr::map_dfr(reactive_input$items,
-                               fit.from.arglist)
+                               function(x){
+                                   result <- fit.from.arglist(x)
+                                   progress$inc(amount  = 1)
+                                   result
+
+                               }
+                               )
         }
 
     })
@@ -266,17 +277,19 @@ shinyServer(function(input, output) {
 
 
 
-    output$table <- renderDataTable({
-        macroparsing::variables[,c("name_rus_short","observation_start", "freq", "source")] %>%
-            inner_join(macroparsing::sources[,c("source", "name_rus")], by = "source") %>%
-            select(-source) %>%
-            dplyr::rename(Переменная="name_rus_short",
-                                    "Начало наблюдений" = "observation_start",
-                                    "Периодичность" = 'freq',
-                                    "Источник" = "name_rus")
-    }
-
-    )
+    output$table <- DT::renderDataTable({
+        DT::datatable(rmedb::show.variables(additional=TRUE, russificate=TRUE, url_as_href=TRUE),
+                      filter = 'top',
+                      colnames = c('Тикер','Название', 'Источник', 'Периодичность',  'Начало наблюдений', 'Ссылка', 'Комменатрий'),
+                      escape = FALSE,
+                      rownames=FALSE,
+                      options = list(rownames= FALSE,
+                                     autoWidth = TRUE,
+                                     language = list(url = 'http:/cdn.datatables.net/plug-ins/1.10.11/i18n/Russian.json'),
+                                     pageLength = 25
+                      )
+        )
+    })
 
 
 
@@ -288,20 +301,20 @@ shinyServer(function(input, output) {
                 label = NULL,
             choices ={
                 if(input$only_main){
-                    x <- macroparsing::variables$ticker
-                    names(x) <- macroparsing::variables$name_rus_short
+                    x <- rmedb::variables$ticker
+                    names(x) <- rmedb::variables$name_rus_short
 
 
                     x[which(x %in% c("cons_real", "gdp_real", "cpi"))]
 
                 } else{
                     split({
-                        x <- macroparsing::variables$ticker
-                        names(x) <- macroparsing::variables$name_rus_short
+                        x <- rmedb::variables$ticker
+                        names(x) <- rmedb::variables$name_rus_short
                         x
 
                     },
-                    macroparsing::variables$source
+                    rmedb::variables$source
                     )
                 }
 
