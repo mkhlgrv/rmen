@@ -7,10 +7,13 @@ setClass(
     start_date = 'Date',
     nowcast_date = 'Date',
     horizon = 'integer',
+    oos_test = 'logical',
+    test_start_date = 'Date',
     predictors = 'list',
     freq = 'character',
     y = 'data.frame',
     X = 'data.frame',
+    data = 'data.frame',
     dates = 'Date',
     target_deseason = 'character',
     pred = 'data.frame',
@@ -20,16 +23,27 @@ setClass(
 
 
 setMethod("initialize", "nowcast",
-          function(.Object, target,name, start_date, nowcast_date, horizon,target_deseason,predictors,methods) {
+          function(.Object,
+                   target,name,
+                   start_date,
+                   nowcast_date = as.character(Sys.Date()),
+                   horizon,
+                   oos_test,
+                   test_start_date=NULL,
+                   target_deseason,
+                   predictors,
+                   methods) {
             .Object@target  <-  target
             .Object@name <- name
             .Object@methods <- methods
             .Object@start_date <- as.Date(start_date)
             .Object@nowcast_date <- as.Date(nowcast_date)
             .Object@horizon <- as.integer(horizon)
+            .Object@oos_test <-  oos_test
+            .Object@test_start_date <- as.Date(test_start_date)
             .Object@predictors <- predictors
-            .Object@dates <- lubridate::ymd()
             .Object@target_deseason<-target_deseason
+            .Object@dates <- lubridate::ymd()
             .Object@freq <- rmedb::variables[which(rmedb::variables$ticker == target),'freq']
             .Object@pred <- data.frame(method=character(), y_pred=numeric())
 
@@ -50,6 +64,9 @@ collect.data <- function(object, directory = NULL){
   UseMethod('collect.data')
 }
 
+plot.data <- function(object){
+  UseMethod('plot.data')
+}
 fit <- function(object){
   UseMethod('fit')
 }
@@ -122,7 +139,9 @@ filter.data.by.frequency <- function(df, object, predictor_freq){
 
   } else if(target_freq=="m" & predictor_freq == "q"){
 
-    df %>% tidyr::uncount(3) # Repeats every row 3 times
+    df <- df %>% tidyr::uncount(3) # Repeats every row 3 times
+    df$date <- data.table::as.IDate(seq.Date(from = df$date[1], by = "1 month", length.out = nrow(df)))
+    df
 
   } else if(target_freq%in%c("m", "q") & predictor_freq%in%c("w", "d")){
 
@@ -188,26 +207,32 @@ timeunit.begin.sequence = function(from, to, by = c("q", "m")){
 #' Returns data.frame with lags of second column
 #'
 #' @param df data.frame
-#' @param lag integer
+#' @param lags integer vector
 #'
 #' @return data.frame
 #' @export
 #' @keywords internal
 #'
 #' @examples
-#' create.lag(data.frame("index"=c(1:5), x = c(1:5)), lag = 2)
+#' create.lag(data.frame("index"=c(1:5), x = c(1:5)), lags = c(1,2))
 #' # index x x__lag1 x__lag2
 #' #     3 3       2       1
 #' #     4 4       3       2
 #' #     5 5       4       3
 #'
-create.lag <- function(df, lag){
-  if(lag == 0){
+create.lag <- function(df, lags){
+  if(length(lags)==1&lags[1]==0){
     df
   } else{
     ticker <- colnames(df)[2]
-    for(l in 1:lag){
-      df[,paste0(ticker,"__lag", l)] <- xts::lag.xts(df[,ticker], l)
+    for(l in lags){
+      if(l!=0){
+        df[,paste0(ticker,"__lag", l)] <- xts::lag.xts(df[,ticker], l)
+      }
+
+    }
+    if(!(0 %in% lags)){
+      df[,ticker] <- NULL
     }
     na.omit(df)
   }
@@ -295,6 +320,56 @@ deseason <- function(df, deseason, freq){ # target freq
 
 }
 
+timeslices.by.testlen <- function(y, initialWindow = NULL, testlen = NULL, ...){
+  if(is.null(initialWindow)){
+    initialWindow <- length(y) - testlen
+  }
+  caret::createTimeSlices(y, initialWindow, ...)
+}
+call.train <- function(object, X_train, X_test, y_train, y_test=NA, save_fit = FALSE, date){
+
+
+  for(i in 1:length(object@methods)){
+
+
+
+    tune_grid <- expand.grid(object@methods[[i]]$tungerid)
+
+    trControl <- do.call(caret::trainControl, object@methods[[i]]$trControl)
+
+
+    arglist <- object@methods[[i]]$train
+    arglist[c("x", "y", "tuneGrid", "trControl")] <- list(X_train,
+                                                          y_train,
+                                                          tune_grid,
+                                                          trControl)
+
+    model <- do.call(caret::train, arglist)
+
+    pred <- predict(model,
+                    newdata = X_test) %>%
+      as.numeric()
+
+
+    if(save_fit){
+      object@fit[[(length(object@fit)+1)]] <- list("name" = object@methods[[i]]$name,
+                                                   "model" = model)
+    }
+
+
+
+    object@pred <- rbind(object@pred,data.frame(method = object@methods[[i]]$name,
+                                                horizon = object@horizon,
+                                                target =object@target,
+                                                name =object@name,
+                                                date = date,
+                                                y_pred = pred,
+                                                y_test = y_test))
+
+  }
+  object
+}
+
 
 #' Collect data
 #'
@@ -311,6 +386,7 @@ setMethod("collect.data", "nowcast",
 
             object@y <-  collect.data.by.ticker(object@target, directory)
 
+
             if(object@freq %in% c('w', 'd')){
               object@y <- make.monthly(object@y)
               object@freq <- "m"
@@ -323,17 +399,27 @@ setMethod("collect.data", "nowcast",
               ticker <-object@predictors[[i]]$ticker
 
               collect.data.by.ticker(ticker, directory) %>%
-                filter.data.by.frequency(object, object@predictors[[i]]$freq) %>%
                 create.lag(object@predictors[[i]]$lag) %>%
+                filter.data.by.frequency(object, object@predictors[[i]]$freq) %>%
                 deseason(object@predictors[[i]]$deseason,
                          object@freq)
             })
-            min_nrow <- min(nrow(object@y)+object@horizon+1, sapply(x_list, nrow))
 
-            object@y <- cut.df.from.start(object@y, min_nrow-object@horizon-1)
+
+            min_nrow <- min(nrow(object@y)+object@horizon, sapply(x_list, nrow))
+
+            object@y <- cut.df.from.start(object@y, min_nrow-object@horizon)
+
+            object@data <- purrr::reduce( x_list,
+                                      dplyr::full_join,
+                                      by = "date") %>%
+              dplyr::arrange(date)
+
             object@X <- lapply(x_list, cut.df.from.start, min_nrow) %>%
               lapply(remove.column, "date") %>%
               dplyr::bind_cols()
+
+
 
             object@dates <- get.dates(object@y, object@freq)
 
@@ -344,6 +430,28 @@ setMethod("collect.data", "nowcast",
           }
           )
 
+
+setMethod("plot.data", "nowcast",
+          function(object){
+
+            scale_column <- function(x){
+              (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+            }
+            object@data$any_na <- as.character(rowSums(is.na(object@data))>0)
+            print(object@data)
+            object@data %>%
+              data.table::melt(id.vars = c("date", "any_na")) %>%
+              dplyr::group_by(variable) %>%
+              dplyr::mutate(value = scale_column(value)) %>%
+              print %>%
+              ggplot(aes(x = date,
+                         y = value,
+                         color= variable,
+                         alpha =any_na
+                         ))+
+              geom_point()+
+              scale_alpha_manual(values = c(1, 0.2), labels = c('FALSE', 'TRUE'))
+          })
 #' Fit
 #'
 #' @param nowcast
@@ -356,61 +464,59 @@ setMethod("fit", "nowcast",
 
             X <- model.matrix(~0+., object@X, drop=FALSE)
             len <- nrow(X)
-            X_train <- X[1:(len-object@horizon-1),,drop=FALSE]
-            X_test <- X[(len-object@horizon):len,,drop=FALSE]
+            X_train <- X[1:(len-object@horizon),,drop=FALSE]
+            X_test <- X[len,,drop=FALSE]
             y_train <- as.numeric(object@y[[1]])
 
 
+            test_date <- object@dates[length(object@dates)]
 
-            for(i in 1:length(object@methods)){
-
-
-              tune_grid <- expand.grid(object@methods[[i]]$tungerid)
-
-              trControl <- do.call(caret::trainControl, object@methods[[i]]$trControl)
+            if(object@oos_test){
+              testlen <- sum(object@dates>=object@test_start_date)-object@horizon
 
 
+              timeslice <- timeslices.by.testlen(y_train, testlen = testlen)
 
-              arglist <- object@methods[[i]]$train
-              arglist[c("x", "y", "tuneGrid", "trControl")] <- list(X_train,
-                                                                    y_train,
-                                                                    tune_grid,
-                                                                    trControl)
+              for(i in 1:testlen){
 
-              model <- do.call(caret::train, arglist)
+                traini <- timeslice$train[[i]]
+                testi <- timeslice$test[[i]]
 
-              pred <- predict(model,
-                              newdata = X_test) %>% as.numeric()
+                X_traini <- X_train[traini,,drop=FALSE]
+                X_testi <- X_train[testi,,drop=FALSE]
+                y_traini <- y_train[traini]
+                y_testi <- y_train[testi]
+                datei = object@dates[testi]
 
-
-              object@fit[[(length(object@fit)+1)]] <- list("name" = object@methods[[i]]$name,
-                                                       "model" = model)
-
-
-              object@pred <- rbind(object@pred,data.frame(method = object@methods[[i]]$name,
-                                                          horizon = object@horizon,
-                                                          target =object@target,
-                                                          name =object@name,
-                                                          date =object@dates[length(object@dates)],
-                                                          y_pred = pred))
+                object <- call.train(object, X_traini, X_testi, y_traini, y_testi, date = datei)
+              }
 
             }
+
+
+
+            object <- call.train(object, X_train, X_test, y_train, save_fit = TRUE, date = test_date)
+
 
             validObject(object)
             return(object)
 
           })
 
-# json_list <- jsonlite::fromJSON('info/json_example.json',
-#                                                   simplifyDataFrame = FALSE,
-#                                                   simplifyVector = TRUE)
-# result <- do.call(new, c("Class"="nowcast",
-#                          "nowcast_date" = as.character(Sys.Date()),
-#                          json_list[[1]])) %>%
-#   collect.data() %>%
-#   fit()
-# res=resamples(list('RF' = result@fit[[1]]$model,
-#                    'RF+PCA' = result@fit[[2]]$model,
-#                    'RF+ICA' = result@fit[[3]]$model))
-# bwplot(res, layout = c(1, 3),scales = list(relation = "free"))
-# summary(res)
+run.from.json <- function(input, out=NULL){
+  input_list <- jsonlite::fromJSON(input,
+                                  simplifyDataFrame = FALSE,
+                                  simplifyVector = TRUE)
+
+  result <- input_list %>% purrr::map(function(item){
+    do.call(new, c("Class"="nowcast",
+                   item)) %>%
+      collect.data() %>%
+      fit()
+  })
+  if(!is.null(output)){
+    save(result, file = output)
+  }
+  result
+
+}
