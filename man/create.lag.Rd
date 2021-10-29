@@ -4,12 +4,12 @@
 \alias{create.lag}
 \title{Create lag}
 \usage{
-create.lag(df, lag)
+create.lag(df, lags)
 }
 \arguments{
 \item{df}{data.frame}
 
-\item{lag}{integer}
+\item{lags}{integer vector}
 }
 \value{
 data.frame
@@ -18,7 +18,7 @@ data.frame
 Returns data.frame with lags of second column
 }
 \examples{
-create.lag(data.frame("index"=c(1:5), x = c(1:5)), lag = 2)
+create.lag(data.frame("index"=c(1:5), x = c(1:5)), lags = c(1,2))
 # index x x__lag1 x__lag2
 #     3 3       2       1
 #     4 4       3       2
