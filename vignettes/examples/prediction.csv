@@ -1,0 +1,2 @@
+method,horizon,target,name,date,y_pred,y_test
+RF with 100 trees and cv,1,cpi,CPI,2021-09-01,0.0643574281165007,
