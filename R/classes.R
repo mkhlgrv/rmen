@@ -503,8 +503,16 @@ setMethod("fit", "nowcast",
 
           })
 
-run.from.json <- function(input, out=NULL){
-  input_list <- jsonlite::fromJSON(input,
+
+#' Run from JSON
+#'
+#' @param input path to .json configuration file
+#' @param output path to .Rda/.Rdata
+#'
+#' @return list
+#' @export
+run.from.json <- function(input, output=NULL){
+  input_list <- jsonlite::fromJSON(readLines(input),
                                   simplifyDataFrame = FALSE,
                                   simplifyVector = TRUE)
 
@@ -520,3 +528,16 @@ run.from.json <- function(input, out=NULL){
   result
 
 }
+
+#' Export result to csv
+#'
+#' @param input path to .Rda/.Rdata with nowcasting resuls
+#' @param output path to .csv
+#'
+#' @export
+export.nowcast.to.csv <- function(input,output){
+  load(input,envir = environment())
+  out <- purrr::map_dfr(result, function(x){x@pred})
+  data.table::fwrite(out, file = output)
+}
+

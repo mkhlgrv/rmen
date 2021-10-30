@@ -14,7 +14,7 @@
 # write(x_json, "info/cpi_all_predictors.json")
 #
 #
-# template <- jsonlite::fromJSON('info/cpi_all_predictors.json',
+# template <- jsonlite::fromJSON( 'info/cpi_all_predictors.json',
 #                    simplifyDataFrame = FALSE,
 #                    simplifyVector = TRUE)
 # vars_to_nowcast <- rio::import("examples/vars_to_nowcast.csv")
